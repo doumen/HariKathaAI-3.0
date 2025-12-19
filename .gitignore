@@ -1,0 +1,31 @@
+# --- Segurança (NUNCA REMOVA ISSO) ---
+credentials.json
+.env
+api_key.txt
+
+# --- Arquivos Temporários e Gerados ---
+chunks/
+transcripts/
+transcripts_bad/
+edits/
+*.mp3
+*.wav
+*.log
+
+# --- Arquivos de Saída (Opcional - Se quiser versionar o resultado, remova estas linhas) ---
+AULA_FINAL_AUDITAVEL.txt
+POST_WORDPRESS_PRONTO.txt
+*_report.json
+*_stats.json
+backup_*.txt
+
+# --- Python ---
+__pycache__/
+*.pyc
+venv/
+.pytest_cache/
+
+# --- Configurações Locais ---
+models_config.json
+editor_checkpoint.json
+banco_cache.json

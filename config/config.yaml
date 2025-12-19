@@ -1,0 +1,175 @@
+# ==============================================================================
+#  HARIKATHA AI 3.0 - ARQUIVO DE CONFIGURAÇÃO MESTRE
+# ==============================================================================
+#  Este arquivo controla o comportamento do pipeline.
+#  SEGREDOS (API Keys) devem ficar no arquivo .env, não aqui.
+# ==============================================================================
+
+project:
+  name: "HariKathaAI"
+  version: "3.2-Enterprise"
+  language_default: "en" # Língua base das aulas
+  timezone: "America/Sao_Paulo"
+
+# ------------------------------------------------------------------------------
+# 1. CAMINHOS E DIRETÓRIOS
+# ------------------------------------------------------------------------------
+paths:
+  # Onde o banco de dados SQL reside
+  database: "database/harikatha.db"
+  
+  # Pastas Temporárias (Podem ser limpas sem medo)
+  downloads: "downloads"
+  cache: "cache"
+  logs: "logs"
+  
+  # Pastas de Saída (O Tesouro - Sincronizado com G. Drive)
+  output_root: "output"
+  assets: "assets"
+
+# ------------------------------------------------------------------------------
+# 2. FASE 1: HARVESTER (Aquisição)
+# ------------------------------------------------------------------------------
+harvest:
+  # Canal Oficial para Monitoramento
+  channel_url: "https://www.youtube.com/@vanamadhuryamofficial"
+  
+  # Intervalo de verificação (em minutos) se rodar como serviço contínuo
+  check_interval_minutes: 60
+  
+  # Configurações do yt-dlp
+  # Baixa melhor vídeo até 1080p (4K é desnecessário para Reels e pesado para processar)
+  video_quality: "bestvideo[height<=1080]+bestaudio/best"
+  
+  # Prioridade de Legendas (Fallback Strategy)
+  # 1. Tenta baixar legenda manual (CC) -> Se achar, pula transcrição (Economia)
+  download_manual_captions: true
+  # 2. Sempre baixa automática para Auditoria de Tempo e Detecção de Corte
+  download_auto_captions: true
+
+# ------------------------------------------------------------------------------
+# 3. FASE 2: PRÉ-PROCESSAMENTO E SMART CUT
+# ------------------------------------------------------------------------------
+audio:
+  # Conversão para processamento e arquivamento
+  export_format: "mp3"
+  sample_rate: 44100
+  # Otimizado para voz humana (Mono economiza 50% de espaço sem perda perceptível)
+  bitrate: "96k"
+  channels: 1
+
+smart_cut:
+  enabled: true
+  
+  # Ferramenta de detecção de música/silêncio
+  # Opções: "inaSpeechSegmenter" (IA, Preciso) ou "volume_threshold" (Rápido, Fallback)
+  tool: "inaSpeechSegmenter"
+  
+  # Margem de segurança para voltar um pouco antes do corte detectado (segundos)
+  offset_margin: 3.0
+
+  # --- GATILHOS DE MODO FORMAL (Multilíngue) ---
+  # Se encontrar qualquer um destes na legenda automática,
+  # o sistema ignora tudo antes (Convidados/Kirtan) e corta aqui.
+  formal_triggers:
+    # Inglês (e erros comuns de ASR)
+    - "first of all"
+    - "fist of all"
+    - "offer my humble"
+    - "respectful obeisances"
+    - "all the devotees"
+
+    # Hindi (Fonética Latina / Hinglish)
+    - "sabse pehle"
+    - "sabse pahle"
+    - "meri dandavat"
+    - "pranam nivedan"
+    - "arpan karta hu"
+    - "charan kamalo mein"
+
+    # Hindi (Devanágari)
+    - "???? ????"
+    - "?????? ??????"
+    - "??? ????? ???"
+    - "????? ??????"
+
+    # Bengali (Fonética Latina / Banglish)
+    - "sarba prathame"
+    - "shorbo prothome"
+    - "amar dandavat"
+    - "pranam janai"
+    - "nivedan korchi"
+
+    # Bengali (Script)
+    - "??????????"
+    - "???? ??????"
+    - "?????? ?????"
+
+    # Sânscrito (Mantras Universais)
+    - "om vishnupada"
+    - "om vishnu pad"
+    - "ajnana timirandhasya"
+    - "vancha kalpa"
+    - "namo maha"
+    - "yakti kripa"
+
+# ------------------------------------------------------------------------------
+# 4. FASE 3: INTELIGÊNCIA (Transcrição e Semântica)
+# ------------------------------------------------------------------------------
+transcription:
+  provider: "groq"
+  model: "whisper-large-v3"
+  temperature: 0.0 # Zero para máxima fidelidade, sem alucinação criativa
+  
+  # O Prompt de Ouro: Ensina o vocabulário antes mesmo de começar
+  initial_prompt: "Vaishnava philosophy context. Terminology: Sri Krishna, Radharani, Goloka Vrindavan, Vraja, Gopis, Manjaris, Rupa Goswami, Mahaprabhu, Nityananda, Gaudiya Vaishnava, Bhakti, Rasa, Prema, Seva, Gurudeva, Srila Vana Maharaja, Srimad Bhagavatam, Hari-katha."
+
+semantics:
+  provider: "gemini"
+  
+  # Modelo para tarefas pesadas (Edição do Livro, Análise Profunda)
+  model_editor: "gemini-1.5-pro"
+  
+  # Modelo para tarefas rápidas (Legendas, Tags, Classificação)
+  model_fast: "gemini-1.5-flash"
+  
+  # Quantos cortes virais procurar por aula?
+  viral_cuts_count: 3
+  
+  # Configurações de Auditoria
+  audit:
+    enabled: true
+    # Se a diferença de tempo entre Groq e YouTube for > 5s, alerta erro.
+    max_sync_diff_seconds: 5.0
+
+# ------------------------------------------------------------------------------
+# 5. FASE 5: FÁBRICA DE PRODUTOS
+# ------------------------------------------------------------------------------
+products:
+  # Gera o PDF individual da aula (Fascículo)
+  generate_pdf: true
+  pdf_language: "pt" # Língua principal do PDF gerado
+  
+  # Gera pacote ZIP com legendas SRT
+  generate_srt_zip: true
+  subtitle_languages: ["en", "pt", "es", "ru"]
+
+social_media:
+  generate_reels: true
+  reel_resolution: [1080, 1920] # 9:16 Vertical
+  burn_captions: true # "Queimar" legenda amarela no vídeo?
+  extract_golden_thumbnail: true # Extrair foto do momento da "Frase de Ouro"
+
+# ------------------------------------------------------------------------------
+# 6. OBSERVABILIDADE E NOTIFICAÇÕES
+# ------------------------------------------------------------------------------
+notifications:
+  telegram:
+    enabled: true
+    # Níveis de alerta: "ERROR_ONLY" ou "ALL" (Sucesso + Erro)
+    level: "ALL" 
+    notify_audit_failure: true
+  
+  logging:
+    save_to_file: true
+    file_name: "pipeline_execution.log"

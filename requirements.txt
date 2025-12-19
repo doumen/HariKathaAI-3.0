@@ -1,0 +1,27 @@
+# Configuração e Ambiente
+PyYAML>=6.0.1
+python-dotenv>=1.0.1
+requests>=2.31.0
+
+# Download e Processamento de Mídia
+yt-dlp>=2023.11.16
+moviepy>=1.0.3
+pydub>=0.25.1
+opencv-python>=4.9.0.80
+
+# --- ATENÇÃO ---
+# Tente instalar a linha abaixo. Se der erro novamente, coloque um # na frente para comentar.
+# O Python 3.12 no Windows pode ter problemas com TensorFlow.
+# Se falhar, usaremos detecção por volume por enquanto.
+inaSpeechSegmenter
+
+# Inteligência Artificial (APIs)
+groq>=0.4.2
+google-generativeai>=0.3.2
+openai>=1.12.0
+
+# Banco de Dados
+SQLAlchemy>=2.0.27
+
+# Utilitários
+tqdm>=4.66.2

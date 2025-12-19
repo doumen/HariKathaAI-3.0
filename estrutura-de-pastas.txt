@@ -1,0 +1,45 @@
+HariKathaAI/
+│
+├── .env                    # Credenciais (API Keys, Tokens) - NUNCA sobe pro Git
+├── .gitignore              # Ignora pastas de downloads, cache e logs
+├── requirements.txt        # Dependências Python
+├── run_pipeline.py         # O Ponto de Entrada (Main)
+│
+├── config/                 # Configurações que não são segredos
+│   ├── config.yaml         # Parâmetros do sistema
+│   └── prompts.yaml        # Prompts do Gemini (para fácil edição sem mexer no código)
+│
+├── assets/                 # Arquivos Estáticos (Templates)
+│   ├── templates/          # Imagens de fundo para Cards (ex: quote_bg.jpg)
+│   ├── fonts/              # Fontes bonitas para os Cards
+│   └── intros/             # (Opcional) Vinheta para vídeos
+│
+├── database/               # O Cérebro (Persistência)
+│   ├── harikatha.db        # Banco SQL (Lectures, Correções, Status)
+│   └── snapshots/          # Backups automáticos do banco
+│
+├── downloads/              # [EPHEMERAL] Área de Desembarque
+│   └── (Vídeos brutos MP4 e JSONs de metadados entram aqui e são deletados após uso)
+│
+├── cache/                  # [EPHEMERAL] Área de Processamento
+│   └── (Áudios cortados, frames temporários, arquivos .wav intermediários)
+│
+├── logs/                   # Observabilidade
+│   ├── pipeline.log        # Log técnico rotativo
+│   └── audit_errors/       # Relatórios de falha de sincronia
+│
+├── output/                 # [PERSISTENT] O Tesouro (Sincronizar com G. Drive)
+│   ├── 01_audio_master/    # MP3s finais otimizados (96kbps mono)
+│   ├── 02_fasciculos_pdf/  # PDFs individuais por aula
+│   ├── 03_social_media/    # Reels (MP4), Cards (JPG), Capas (JPG)
+│   ├── 04_legendas_pkg/    # ZIPs com SRTs multilíngues para envio
+│   └── 05_source_data/     # JSON/Markdown limpo para compilação futura de livros
+│
+└── src/                    # O Código Fonte Modular
+    ├── __init__.py
+    ├── orchestrator.py     # O Gerente
+    ├── harvesters/         # Scripts de Download e Monitoramento
+    ├── processors/         # Audio, Video, Image cutters
+    ├── intelligence/       # Groq, Gemini, Learning Loop
+    ├── generators/         # PDF Builder, SRT Builder
+    └── utils/              # Loggers, Database Connectors, Helpers
