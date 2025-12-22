@@ -1,0 +1,36 @@
+{
+  "name": "harikatha-ai",
+  "version": "1.0.0",
+  "description": "Fábrica de Conteúdo Digital para Harikatha usando IA e Web Scraping",
+  "main": "src/orchestrator.py",
+  "scripts": {
+    "test:wisdom": "node tests/test_wisdom_fetcher.js",
+    "install:deps": "npm install"
+  },
+  "keywords": [
+    "puppeteer",
+    "harikatha",
+    "ai",
+    "scraping"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "puppeteer": "^21.11.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "directories": {
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doumen/HariKathaAI-3.0.git"
+  },
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/doumen/HariKathaAI-3.0/issues"
+  },
+  "homepage": "https://github.com/doumen/HariKathaAI-3.0#readme"
+}

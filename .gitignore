@@ -19,13 +19,31 @@ POST_WORDPRESS_PRONTO.txt
 *_stats.json
 backup_*.txt
 
-# --- Python ---
-__pycache__/
-*.pyc
-venv/
-.pytest_cache/
-
 # --- Configurações Locais ---
 models_config.json
 editor_checkpoint.json
 banco_cache.json
+
+# Node.js
+node_modules/
+npm-debug.log
+package-lock.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+
+# Logs e Temporários
+logs/
+downloads/
+cache/
+google_block_debug.png
+duckduckgo_debug.png
+
+# Banco de dados (opcional - se quiser subir o DB, remova a linha abaixo)
+*.db
+*.db.gz

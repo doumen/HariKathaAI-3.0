@@ -149,40 +149,29 @@ def setup_database() -> None:
         """
         CREATE TABLE IF NOT EXISTS ai_audit_logs (
             audit_id            INTEGER PRIMARY KEY AUTOINCREMENT,
-
-            -- Dados de contexto do trabalho
             lecture_id          INTEGER,
             book_id             INTEGER,
             job_id              INTEGER,
-
-            -- Identificação do modelo e da requisição
             model_name          TEXT    NOT NULL,
             request_hash        TEXT    NOT NULL,
-
-            -- Conteúdo da chamada
-            prompt_raw          TEXT    NOT NULL,   -- texto completo do prompt
-            response_raw        TEXT,               -- texto completo da resposta (pode ser NULL em caso de bloqueio)
-
-            -- Métricas de uso
+            prompt_raw          TEXT    NOT NULL,
+            response_raw        TEXT,
             input_tokens        INTEGER NOT NULL,
             output_tokens       INTEGER,
-            estimated_cost_usd  REAL    NOT NULL,   -- custo estimado antes da chamada
-            cost_usd            REAL,               -- custo real (apenas quando SUCCESS)
-
-            -- Performance & status
+            estimated_cost_usd  REAL    NOT NULL,
+            cost_usd            REAL,
             latency_ms          REAL,
-            status_code         TEXT    NOT NULL
-            CHECK (status_code IN ('SUCCESS','ERROR','RATE_LIMIT','COST_BLOCKED')),
-
-            -- Payload JSON (útil para depuração e replay)
+            status_code         TEXT    NOT NULL 
+                CHECK (status_code IN ('SUCCESS','ERROR','RATE_LIMIT','COST_BLOCKED')),
             payload_json        TEXT,
-
-            -- Controle de versão temporal
             created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-
-            -- Garantia de unicidade para o mesmo prompt+modelo
+            error_message       TEXT,
+            operation_type      TEXT DEFAULT 'GENERAL',
             UNIQUE(request_hash, model_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_audit_op ON ai_audit_logs (operation_type);
         """
     )
 
