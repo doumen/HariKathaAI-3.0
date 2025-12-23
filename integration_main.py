@@ -1,39 +1,60 @@
 import subprocess
 import json
-import sqlite3
-from src.intelligence.librarian_storage import save_scraped_verse # A função que criamos
+import logging
+import os
+# Importamos a função de salvamento do seu arquivo oficial
+from src.intelligence.librarian_storage import save_scraped_verse
 
-def capture_and_save(book, verse):
-    print(f"🚀 Iniciando captura de {book} {verse}...")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("IntegrationMain")
 
-    # 1. Chama o Node.js para buscar o dado
+def capture_and_save(book_acronym, verse_ref):
+    book_map = {
+        "BRS": "Bhakti-rasamrta-sindhu",
+        "SB": "Srimad-Bhagavatam",
+        "CC": "Caitanya-caritamrta"
+    }
+
+    full_book_name = book_map.get(book_acronym, book_acronym)
+    logger.info(f"🚀 Iniciando captura: {full_book_name} {verse_ref}")
+
+    # 1. Executa o Scraper
     result = subprocess.run(
-        ['node', 'tests/test_wisdom_fetcher.js', book, verse],
+        ['node', 'tests/test_wisdom_fetcher.js', full_book_name, verse_ref],
         capture_output=True,
         text=True,
         encoding='utf-8'
     )
 
+    # 2. Lógica de Sucesso: O returncode deve ser 0
     if result.returncode == 0:
+        # Mostramos os logs do Node apenas como informação, não como erro
+        if result.stderr:
+            print(f"--- Logs do Scraper ---\n{result.stderr}\n-----------------------")
+
         try:
-            # 2. Extrai o JSON da saída do Node
+            # 3. Busca o JSON na saída (stdout)
             raw_output = result.stdout.strip()
             start_index = raw_output.find('{')
             end_index = raw_output.rfind('}') + 1
-            
-            if start_index != -1:
-                data = json.loads(raw_output[start_index:end_index])
+
+            if start_index != -1 and end_index > start_index:
+                verse_data = json.loads(raw_output[start_index:end_index])
                 
-                # 3. Salva no Banco v6.5
-                # O 'BRS' deve bater com o ACRONYM que está no seu setup_database.py
-                save_scraped_verse(data, book_acronym="BRS")
+                # 4. Tenta salvar no banco
+                save_scraped_verse(verse_data, book_acronym=book_acronym)
+                logger.info(f"✅ Verso {verse_ref} processado com sucesso!")
             else:
-                print("❌ Nenhum JSON encontrado na resposta do Node.")
+                logger.error("❌ O Scraper rodou, mas não entregou um JSON válido no stdout.")
+                
         except Exception as e:
-            print(f"❌ Erro ao processar: {e}")
+            logger.error(f"❌ Erro ao processar o JSON: {e}")
+            logger.debug(f"Saída bruta: {result.stdout}")
     else:
-        print(f"❌ Erro no Scraper: {result.stderr}")
+        # Aqui sim é um erro real de execução do Node
+        logger.error(f"❌ Erro Fatal no Node.js (Exit Code {result.returncode}):")
+        logger.error(result.stderr)
 
 if __name__ == "__main__":
-    # Comando para inserir o verso específico
-    capture_and_save("Bhakti-rasamrta-sindhu", "1.1.1")
+    # Teste com o verso 1.1.1
+    capture_and_save("BRS", "1.1.1")

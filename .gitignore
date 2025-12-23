@@ -47,3 +47,5 @@ duckduckgo_debug.png
 # Banco de dados (opcional - se quiser subir o DB, remova a linha abaixo)
 *.db
 *.db.gz
+*.db-shm
+*.db-wal

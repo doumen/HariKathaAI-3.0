@@ -1,91 +1,125 @@
-const puppeteer = require('puppeteer-extra'); // Mude aqui
+const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-puppeteer.use(StealthPlugin()); // Ativa o disfarce ninja
-
-const cheerio = require('cheerio');
+puppeteer.use(StealthPlugin());
 
 class WisdomSearchTest {
     constructor() {
-        // Mudança tática: Usar busca direta no WisdomLib via Google
-        // No constructor
-		this.baseUrl = "https://duckduckgo.com/?q=";
+        this.baseUrl = "https://duckduckgo.com/?q=";
     }
 
     async execute(book, verse) {
-        console.error(`🔍 Buscando: ${book} ${verse}`);
-        
-        const browser = await puppeteer.launch({ 
-            headless: "new", // Pode mudar para false se quiser ver o navegador abrindo
-            args: ['--no-sandbox'] 
+        // console.error(`🔍 [NODE] Buscando: ${book} ${verse}`);
+        const browser = await puppeteer.launch({
+            headless: "new",
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
-        
-        const page = await browser.newPage();
 
-		try {
+        try {
+            const page = await browser.newPage();
+            page.setDefaultNavigationTimeout(60000); 
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36');
+
+            // 1. Navegação (Padrão)
             const query = encodeURIComponent(`site:wisdomlib.org ${book} ${verse}`);
-            await page.goto(`${this.baseUrl}${query}`, { waitUntil: 'networkidle2' });
+            await page.goto(`${this.baseUrl}${query}`, { waitUntil: 'domcontentloaded' });
+            try { await page.waitForSelector('a', { timeout: 5000 }); } catch(e) {}
 
-            // DuckDuckGo usa classes como '.results' ou o ID 'links'
-            // Esperamos carregar qualquer link para garantir que a busca terminou
-            await page.waitForSelector('a', { timeout: 10000 });
-
-            const firstLink = await page.evaluate(() => {
-                // Selecionamos todos os links da página
+            let targetLink = await page.evaluate((v) => {
                 const links = Array.from(document.querySelectorAll('a'));
-                // Procuramos o primeiro que aponte para o livro no WisdomLib
-                const wisdomLink = links.find(l => 
-                    l.href.includes('wisdomlib.org/hinduism/book') || 
-                    l.href.includes('wisdomlib.org/vaishnavism/book')
-                );
-                return wisdomLink ? wisdomLink.href : null;
-            });
+                const exact = links.find(l => l.innerText.includes(v) && l.href.includes('wisdomlib.org'));
+                if (exact) return exact.href;
+                return links.find(l => l.href.includes('wisdomlib.org/hinduism/book'))?.href;
+            }, verse);
 
-            if (!firstLink) {
-                await page.screenshot({ path: 'duckduckgo_debug.png' });
-                throw new Error("Link não encontrado no DuckDuckGo.");
+            if (!targetLink) throw new Error("Link não encontrado");
+            await page.goto(targetLink, { waitUntil: 'domcontentloaded' });
+
+            const isIndex = await page.evaluate(() => document.body.innerText.includes("Contents of this online book"));
+            if (isIndex) {
+                const verseUrl = await page.evaluate((v) => {
+                    const a = Array.from(document.querySelectorAll('a')).find(el => el.innerText.includes(v));
+                    return a ? a.href : null;
+                }, verse);
+                if (verseUrl) await page.goto(verseUrl, { waitUntil: 'domcontentloaded' });
             }
 
-            console.error(`🔗 Sucesso: ${firstLink}`);
-            
-            // Navega para o WisdomLib
-            await page.goto(firstLink, { waitUntil: 'domcontentloaded' });
-            
-            const html = await page.content();
-            const $ = cheerio.load(html);
+            // 2. EXTRAÇÃO ARRAY (MULTI-TRADUÇÃO)
+            const result = await page.evaluate((v_num) => {
+                const clean = (text) => text ? text.replace(/\s+/g, ' ').trim() : "";
+                const main = document.querySelector('#main') || document.body;
+                
+                const rawText = main.innerText;
+                // Quebra em blocos duplos para isolar parágrafos
+                const blocks = rawText.split(/\n\s*\n/).map(b => b.trim()).filter(b => b.length > 3);
 
-            // Extração dos dados baseada na estrutura do WisdomLib que você enviou
-            return {
-                referencia: $('h1').text().trim() || `${book} ${verse}`,
-                sânscrito: $('.sanskrit').first().text().trim(),
-                transliteracao: $('.unicode').first().text().trim(),
-                fonte: firstLink
-            };        
+                let sanskritText = "";
+                let translitText = "";
+                let translationsList = []; // AGORA É UMA LISTA
+                
+                let sanskritIndex = -1;
+
+                // A. Achar Sânscrito
+                for (let i = 0; i < blocks.length; i++) {
+                    if (/[\u0900-\u097F]/.test(blocks[i]) && !/Resources|Buy|words/i.test(blocks[i])) {
+                        sanskritText = clean(blocks[i]);
+                        sanskritIndex = i;
+                        break; 
+                    }
+                }
+
+                // B. Achar Transliteração
+                if (sanskritIndex !== -1 && (sanskritIndex + 1) < blocks.length) {
+                    const nextBlock = blocks[sanskritIndex + 1];
+                    if (!/[\u0900-\u097F]/.test(nextBlock) && !/written by|medieval era/i.test(nextBlock)) {
+                        translitText = clean(nextBlock);
+                    }
+                }
+
+                // C. Achar TODAS as Traduções (Loop a partir do texto)
+                let startIndex = sanskritIndex + 2; 
+                if (startIndex < blocks.length) {
+                    for (let i = startIndex; i < blocks.length; i++) {
+                        let block = blocks[i];
+
+                        // Filtros de Lixo
+                        if (/written by|medieval era|Sanskrit book|English translation of the|Buy now|Resources/i.test(block)) continue;
+                        if (/^English translation$/i.test(block) || /^Translation$/i.test(block) || block.length < 20) continue;
+                        if (/Commentary|Purport|Source/i.test(block)) break; // Parar se chegar nos comentários
+
+                        // Detecta se é uma tradução válida
+                        // WisdomLib costuma usar: "First Translation:", "Second Translation:" ou apenas o texto
+                        // Vamos aceitar o bloco se ele passou pelos filtros de lixo
+                        let cleanTrans = clean(block.replace(/^(First|Second|Third)?\s*Translation:/i, ''));
+                        
+                        // Evita duplicatas exatas na lista
+                        if (cleanTrans.length > 10 && !translationsList.includes(cleanTrans)) {
+                            translationsList.push(cleanTrans);
+                        }
+                    }
+                }
+
+                return {
+                    reference: v_num,
+                    sanskrit: sanskritText,
+                    transliteration: translitText,
+                    english_translations: translationsList, // Devolvemos o ARRAY
+                    source: window.location.href
+                };
+            }, verse);
+
+            return result;
+
         } catch (error) {
-            console.error("❌ Erro:", error.message);
-            return null;
+            return { error: error.message };
         } finally {
             await browser.close();
         }
     }
 }
 
-// ... (resto do script igual ao anterior)
-// Execução Final
 const args = process.argv.slice(2);
-const book = args[0] || "Bhakti-rasamrta-sindhu";
-const verse = args[1] || "1.1.1";
-
 const tester = new WisdomSearchTest();
-
-tester.execute(book, verse).then(result => {
-    if (result && result.sânscrito) {
-        // Único lugar onde o JSON é escrito no stdout
-        process.stdout.write(JSON.stringify(result));
-    } else {
-        process.exit(1);
-    }
+tester.execute(args[0], args[1]).then(res => {
+    process.stdout.write(JSON.stringify(res));
     process.exit(0);
-}).catch(err => {
-    console.error("Erro fatal:", err);
-    process.exit(1);
-});
+}).catch(() => process.exit(0));

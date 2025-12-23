@@ -1,56 +1,87 @@
 import sqlite3
-import json
 import logging
+import os
 
-def save_scraped_verse(data, book_acronym="BRS"):
-    """
-    Salva os dados do scraper nas tabelas library_index e library_content.
-    """
-    DB_PATH = "database/harikatha.db"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DB_PATH = os.path.join(BASE_DIR, "database", "harikatha.db")
+
+logger = logging.getLogger("LibrarianStorage")
+logger.setLevel(logging.INFO)
+
+# ... (Funções _ensure_book_id e _ensure_index_id e _upsert_root_text mantêm-se iguais) ...
+def _ensure_book_id(conn, acronym):
+    cur = conn.execute("SELECT id FROM library_books WHERE acronym = ?", (acronym,))
+    row = cur.fetchone()
+    if not row: raise ValueError(f"Livro '{acronym}' não encontrado.")
+    return row[0]
+
+def _ensure_index_id(conn, book_id, canonical_id, verse_ref):
+    parts = verse_ref.split(".")
+    n1 = int(parts[0]) if len(parts) > 0 and parts[0].isdigit() else 0
+    n2 = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    n3 = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    conn.execute("INSERT OR IGNORE INTO library_index (book_id, canonical_id, num_1, num_2, num_3, page_number) VALUES (?, ?, ?, ?, ?, 0)", (book_id, canonical_id, n1, n2, n3))
+    cur = conn.execute("SELECT id FROM library_index WHERE canonical_id = ?", (canonical_id,))
+    return cur.fetchone()[0]
+
+def _upsert_root_text(conn, index_id, sanskrit, translit):
+    if not sanskrit and not translit: return
+    conn.execute("INSERT OR REPLACE INTO library_root_text (index_id, primary_script, transliteration) VALUES (?, ?, ?)", (index_id, sanskrit, translit))
+    logger.info(f"🕉️ Texto Raiz atualizado.")
+
+# --- ATUALIZADO: Lida com a lista de traduções ---
+def _upsert_translation(conn, index_id, lang, translator, text):
+    if not text or len(text.strip()) < 2: return
     
+    # O UNIQUE(index_id, language_code, translator) garante que
+    # se rodarmos o script 2 vezes, ele atualiza, não duplica.
+    conn.execute("""
+        INSERT OR REPLACE INTO library_translations
+        (index_id, language_code, translator, text_body)
+        VALUES (?, ?, ?, ?)
+    """, (index_id, lang, translator, text.strip()))
+    
+    logger.info(f"🌍 Tradução ({translator}) gravada.")
+
+def save_scraped_verse(verse_data: dict, book_acronym: str) -> None:
+    if not verse_data or not verse_data.get('reference'): return
+
+    conn = sqlite3.connect(DB_PATH)
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
+        book_id = _ensure_book_id(conn, book_acronym)
+        canonical_id = f"{book_acronym}_{verse_data['reference']}"
+        index_id = _ensure_index_id(conn, book_id, canonical_id, verse_data['reference'])
 
-        # 1. Buscar o ID do livro pelo Acrônimo (ex: BRS)
-        cur.execute("SELECT id FROM library_books WHERE acronym = ?", (book_acronym,))
-        book_row = cur.fetchone()
-        if not book_row:
-            print(f"❌ Livro {book_acronym} não encontrado no banco. Rode o setup_database primeiro.")
-            return
-        book_id = book_row[0]
+        # 1. Raiz
+        _upsert_root_text(conn, index_id, verse_data.get("sanskrit"), verse_data.get("transliteration"))
 
-        # 2. Criar o Índice (library_index)
-        # O canonical_id evita duplicatas (ex: BRS_1.1.1)
-        canonical_id = f"{book_acronym}_{data['referencia'].replace(' ', '_')}"
+        # 2. Traduções (Lista)
+        translations = verse_data.get("english_translations", [])
         
-        cur.execute("""
-            INSERT OR IGNORE INTO library_index (book_id, canonical_id, page_number)
-            VALUES (?, ?, ?)
-        """, (book_id, canonical_id, 0))
-        
-        # Recuperar o index_id (seja o novo ou o existente)
-        cur.execute("SELECT id FROM library_index WHERE canonical_id = ?", (canonical_id,))
-        index_id = cur.fetchone()[0]
+        # Se vier como string única (compatibilidade antiga), transforma em lista
+        if isinstance(translations, str):
+            translations = [translations]
 
-        # 3. Salvar o Conteúdo (library_content) - Versão Original (sa)
-        # Usamos INSERT OR REPLACE para atualizar caso o verso já exista
-        cur.execute("""
-            INSERT OR REPLACE INTO library_content (index_id, content_type, language_code, text_body)
-            VALUES (?, ?, ?, ?)
-        """, (index_id, 'ORIGINAL', 'sa', data['sânscrito']))
+        if not translations:
+            # Tenta pegar da chave antiga se a nova falhar
+            old_key = verse_data.get("english_translation")
+            if old_key: translations = [old_key]
 
-        # 4. Salvar a Transliteração (como uma versão alternativa)
-        if data.get('transliteracao'):
-            cur.execute("""
-                INSERT OR REPLACE INTO library_content (index_id, content_type, language_code, text_body)
-                VALUES (?, ?, ?, ?)
-            """, (index_id, 'TRANSLITERATION', 'en', data['transliteracao']))
+        # Loop Inteligente
+        for i, text in enumerate(translations):
+            if len(translations) > 1:
+                # Se tem mais de uma, usamos sufixos: WisdomLib (1), WisdomLib (2)
+                translator_name = f"WisdomLib ({i+1})"
+            else:
+                # Se tem só uma, mantém o nome limpo
+                translator_name = "WisdomLib"
+
+            _upsert_translation(conn, index_id, "en", translator_name, text)
 
         conn.commit()
-        print(f"✨ Verso {data['referencia']} eternizado no banco de dados!")
-
+        logger.info(f"✅ Verso {canonical_id} salvo com {len(translations)} traduções.")
+        
     except Exception as e:
-        print(f"❌ Erro ao salvar no banco: {e}")
+        logger.error(f"❌ Erro ao salvar: {e}")
     finally:
         conn.close()
