@@ -2,283 +2,143 @@
 # -*- coding: utf-8 -*-
 
 """
-setup_database.py
-
-Cria e inicializa o banco SQLite usado pelo projeto HariKatha‑3.0.
-Versão: v6.5 (Arquitetura Raiz-Folha V3.0).
-
-Autor: equipe HariKatha
+final_cleanup.py
+Script final para resolver os últimos 4 problemas pendentes.
+Correções aplicadas:
+1. Ajuste de nomes de colunas para bater com Schema V8.0 (language -> language_code).
+2. Remoção de colunas inexistentes no índice (chapter_title).
 """
 
-import os
 import sqlite3
-import logging
+import os
 
-# ==============================================================================
-# CONFIGURAÇÕES
-# ==============================================================================
-DB_FOLDER = "database"
-DB_NAME = "harikatha.db"
-DB_PATH = os.path.join(DB_FOLDER, DB_NAME)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DB_PATH = os.path.join(BASE_DIR, "database", "harikatha.db")
 
-# Configuração de logs
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-logger = logging.getLogger("HariKathaAI_v6.5")
+def get_conn():
+    return sqlite3.connect(DB_PATH)
 
-# ==============================================================================
-# FUNÇÕES DE CRIAÇÃO
-# ==============================================================================
-
-def setup_database() -> None:
-    """Cria o diretório, conecta ao SQLite e cria todas as tabelas."""
-    os.makedirs(DB_FOLDER, exist_ok=True)
-
-    conn = sqlite3.connect(DB_PATH)
-    # Otimizações de performance e integridade
-    conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA synchronous = NORMAL;")
-
-    cur = conn.cursor()
-    logger.info("🏗️  Construindo HariKathaAI v6.5 (Schema V3.0)...")
-
-    # -------------------------------------------------------------------------
-    # 1. Apoio e aprendizado
-    # -------------------------------------------------------------------------
-    cur.executescript("""
-        CREATE TABLE IF NOT EXISTS languages (
-            code TEXT PRIMARY KEY CHECK (length(code) BETWEEN 2 AND 3),
-            description TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS learning_corrections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            wrong_term TEXT UNIQUE NOT NULL,
-            correct_term TEXT NOT NULL,
-            correction_type TEXT DEFAULT 'PHONETIC',
-            confidence_score REAL DEFAULT 1.0,
-            is_active_rule INTEGER DEFAULT 1,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            language_code TEXT REFERENCES languages(code)
-        );
-    """)
-
-    # -------------------------------------------------------------------------
-    # 2. Lectures (Conteúdo Base)
-    # -------------------------------------------------------------------------
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS lectures (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            youtube_url TEXT UNIQUE NOT NULL,
-            youtube_id TEXT UNIQUE,
-            file_hash TEXT UNIQUE,
-            lecture_title TEXT NOT NULL,
-            lecture_date DATETIME NOT NULL,
-            current_state TEXT NOT NULL DEFAULT 'NEW'
-                CHECK (current_state IN ('NEW','HARVESTED','PREPROCESSED',
-                                       'TRANSCRIBED','AUDITED','PUBLISHED',
-                                       'FAILED','ARCHIVED')),
-            duration_seconds REAL CHECK (duration_seconds >= 0),
-            path_cover_image TEXT,
-            
-            -- Auditoria e Sincronia
-            audit_status TEXT DEFAULT 'PENDING',
-            sync_diff_avg REAL,
-            cut_mode TEXT,
-            kirtan_offset_seconds REAL DEFAULT 0.0,
-            retry_count INTEGER DEFAULT 0,
-            
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-
-    # -------------------------------------------------------------------------
-    # 3. Media Assets
-    # -------------------------------------------------------------------------
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS media_assets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lecture_id INTEGER NOT NULL,
-            asset_type TEXT NOT NULL
-                CHECK (asset_type IN ('AUDIO','PDF','SRT','COVER')),
-            file_path TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (lecture_id) REFERENCES lectures(id) ON DELETE CASCADE
-        );
-    """)
-
-    # -------------------------------------------------------------------------
-    # 4. Pipeline Jobs (Orquestração)
-    # -------------------------------------------------------------------------
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS pipeline_jobs (
-            job_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            job_type TEXT NOT NULL,
-            lecture_id INTEGER,
-            status TEXT NOT NULL DEFAULT 'PENDING',
-            started_at DATETIME,
-            finished_at DATETIME,
-            error_message TEXT,
-            FOREIGN KEY (lecture_id) REFERENCES lectures(id) ON DELETE CASCADE
-        );
-    """)
-
-    # -------------------------------------------------------------------------
-    # 5. Auditoria IA (Custos e Logs)
-    # -------------------------------------------------------------------------
-    cur.executescript("""
-        CREATE TABLE IF NOT EXISTS ai_audit_logs (
-            audit_id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            lecture_id          INTEGER,
-            book_id             INTEGER,
-            job_id              INTEGER,
-            model_name          TEXT    NOT NULL,
-            request_hash        TEXT    NOT NULL,
-            prompt_raw          TEXT    NOT NULL,
-            response_raw        TEXT,
-            input_tokens        INTEGER NOT NULL,
-            output_tokens       INTEGER,
-            estimated_cost_usd  REAL    NOT NULL,
-            status_code         TEXT    NOT NULL,
-            created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(request_hash, model_name)
-        );
-    """)
-
-    # -------------------------------------------------------------------------
-    # 6. BIBLIOTECA (ARQUITETURA V3.0 - RAIZ/FOLHA)
-    # -------------------------------------------------------------------------
+def ensure_slk_8_39_exists(cursor, book_id):
+    """Insere o registro do verso 8.39 na tabela de índice e depois insere o conteúdo."""
+    canonical_id = "SLK_8.39"
     
-    # 6.1 Livros (Faltava no seu script anterior)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS library_books (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            acronym TEXT UNIQUE NOT NULL,
-            book_title TEXT NOT NULL,
-            label_l1 TEXT, -- Ex: Canto
-            label_l2 TEXT, -- Ex: Capítulo
-            label_l3 TEXT, -- Ex: Verso
-            language_default TEXT DEFAULT 'sa'
-        );
-    """)
-
-    # 6.2 Índice (Esqueleto)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS library_index (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            book_id INTEGER,
-            canonical_id TEXT UNIQUE, -- ex: BRS_1.1.1
-            num_1 INTEGER,
-            num_2 INTEGER,
-            num_3 INTEGER,
-            page_number INTEGER,
-            FOREIGN KEY(book_id) REFERENCES library_books(id)
-        );
-    """)
-
-    # 6.3 Texto Raiz (Sânscrito/Bengali) - 1:1 com Índice
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS library_root_text (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            index_id INTEGER UNIQUE,  -- UNIQUE garante apenas 1 original por verso
-            primary_script TEXT,      -- Devanagari ou Bengali
-            transliteration TEXT,     -- IAST
-            FOREIGN KEY(index_id) REFERENCES library_index(id)
-        );
-    """)
-
-    # 6.4 Traduções (Inglês, PT, etc) - 1:N com Índice
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS library_translations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            index_id INTEGER,
-            language_code TEXT,       -- 'en', 'pt'
-            translator TEXT,          -- 'WisdomLib (1)', 'AI_Gemini', 'Swami X'
-            text_body TEXT,
-            FOREIGN KEY(index_id) REFERENCES library_index(id),
-            
-            -- Chave composta: Um tradutor só pode ter uma versão por língua para um verso
-            UNIQUE(index_id, language_code, translator)
-        );
-    """)
-
-    # -------------------------------------------------------------------------
-    # 7. Tabelas de Saída (Factory)
-    # -------------------------------------------------------------------------
-    cur.executescript("""
-        CREATE TABLE IF NOT EXISTS lecture_verses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lecture_id INTEGER NOT NULL,
-            library_index_id INTEGER NOT NULL,
-            timestamp_seconds REAL NOT NULL,
-            FOREIGN KEY (lecture_id) REFERENCES lectures(id) ON DELETE CASCADE,
-            FOREIGN KEY (library_index_id) REFERENCES library_index(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS blog_posts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lecture_id INTEGER NOT NULL,
-            slug TEXT UNIQUE,
-            content_html TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (lecture_id) REFERENCES lectures(id) ON DELETE CASCADE
-        );
-    """)
-
-    # -------------------------------------------------------------------------
-    # 8. Índices e Triggers
-    # -------------------------------------------------------------------------
-    logger.info("⚡ Otimizando índices...")
-    cur.executescript("""
-        CREATE INDEX IF NOT EXISTS idx_lib_canon ON library_index (canonical_id);
-        CREATE INDEX IF NOT EXISTS idx_lectures_date ON lectures (lecture_date DESC);
+    # 1. Verifica se existe no índice
+    cursor.execute("SELECT id FROM library_index WHERE canonical_id = ?", (canonical_id,))
+    res = cursor.fetchone()
+    
+    if not res:
+        print(f"➕ Criando entrada no índice para {canonical_id}...")
+        # Schema V8.0: library_index não tem 'chapter_title' nem 'source_ref'
+        cursor.execute("""
+            INSERT INTO library_index (book_id, canonical_id)
+            VALUES (?, ?)
+        """, (book_id, canonical_id))
+        index_id = cursor.lastrowid
+    else:
+        index_id = res[0]
         
-        CREATE TRIGGER IF NOT EXISTS trg_lectures_update
-        AFTER UPDATE ON lectures
-        BEGIN
-            UPDATE lectures SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-        END;
+    # 2. Insere/Atualiza Raiz
+    root_text = """kīrtana-prabhāve, smaraṇa haibe,
+se kāle bhajana-nirjana sambhava"""
+    
+    cursor.execute("INSERT OR REPLACE INTO library_root_text (index_id, transliteration) VALUES (?, ?)", 
+                   (index_id, root_text))
+
+    # 3. Insere/Atualiza Tradução
+    w2w = "kīrtana-prabhāve — by the power of the chanting; smaraṇa — remembering the Lord’s pastimes; haibe — will be; se kāle — at that time; bhajana-nirjana — solitary bhajana; sambhava — possible."
+    body = "The transcendental power of congregational chanting automatically awakens remembrance of the Lord and His divine pastimes in relation to one’s own eternal spiritual form. Only at that time does it become possible to go off to a solitary place and engage in the confidential worship of Their Lordships (aṣṭa-kālīya-līlā-smaraṇa)."
+    source_ref = "Mahājana-racita Gīta, Duṣṭa Mana! – Śrīla Bhaktisiddhānta Sarasvatī Prabhupāda"
+    
+    # Verifica se já tem tradução
+    cursor.execute("SELECT id FROM library_translations WHERE index_id = ?", (index_id,))
+    trans_res = cursor.fetchone()
+    
+    if trans_res:
+        cursor.execute("""
+            UPDATE library_translations SET text_body=?, word_for_word=?, source_ref=? WHERE id=?
+        """, (body, w2w, source_ref, trans_res[0]))
+    else:
+        # CORREÇÃO AQUI: language -> language_code
+        cursor.execute("""
+            INSERT INTO library_translations (index_id, language_code, text_body, word_for_word, source_ref)
+            VALUES (?, 'en', ?, ?, ?)
+        """, (index_id, body, w2w, source_ref))
+        
+    print("✅ SLK_8.39 restaurado com sucesso.")
+
+def fix_slk_0_1(cursor):
+    """Substitui o texto explodido do 0.1 por texto limpo."""
+    print("🔧 Consertando SLK_0.1 (Explodido)...")
+    
+    w2w = "vande — offer my respectful obeisances; aham — I; śrī-guroḥ — of Śrī Gurudeva; śrī-yuta-pada-kamalam — unto the opulent lotus feet; śrī-gurun — unto the spiritual masters; vaiṣṇavān — unto the Vaiṣṇavas; ca — and; śrī-rūpam — unto Śrīla Rūpa Gosvāmī; sāgrajātam — with his elder brother (Śrīla Sanātana Gosvāmī); saha-gaṇa-raghunāthan-vitam — with Raghunātha Dāsa Gosvāmī and associates; tam — unto him; sa-jīvam — with Jīva Gosvāmī; sādvaitam — with Advaita Ācārya; sāvadhūtam — with Nityānanda Prabhu; parijana-sahitam — and with Śrīvāsa Ṭhākura and all the other devotees; kṛṣṇa-caitanya-devam — unto Lord Śrī Kṛṣṇa Caitanya Mahāprabhu; śrī-rādhā-kṛṣṇa-pādān — unto the lotus feet of Śrī Rādhā and Kṛṣṇa; saha-gaṇa-lalitā-śrī-viśākhān-vitāṁś — with Lalitā, Viśākhā and the other sakhīs; ca — also."
+    
+    body = "I offer praṇāma to the lotus feet of Śrī Gurudeva (both dīkṣā and śikṣā-guru), guru-varga (our entire disciplic succession), the Vaiṣṇavas, Śrīla Rūpa Gosvāmī, his elder brother Śrīla Sanātana Gosvāmī, Śrīla Raghunātha Dāsa Gosvāmī, Śrīla Jīva Gosvāmī and their associates. I offer praṇāma to Śrī Advaita Ācārya, Śrī Nityānanda Prabhu, Śrīvāsa Ṭhākura and all the devotees, and to Śrī Kṛṣṇa Caitanya Mahāprabhu. I offer praṇāma to the lotus feet of Śrī Rādhā and Kṛṣṇa, and to Śrī Lalitā-devī, Śrī Viśākhā-devī and all the other sakhīs."
+
+    cursor.execute("SELECT id FROM library_index WHERE canonical_id = 'SLK_0.1'")
+    res = cursor.fetchone()
+    if res:
+        index_id = res[0]
+        cursor.execute("""
+            UPDATE library_translations 
+            SET word_for_word = ?, text_body = ? 
+            WHERE index_id = ?
+        """, (w2w, body, index_id))
+        print("✅ SLK_0.1 limpo.")
+
+def fix_slk_13_47(cursor):
+    """Insere o texto raiz do 13.47."""
+    print("🔧 Preenchendo SLK_13.47...")
+    root_text = """kṛṣṇa-nāma-dhare kata bala?
+viṣaya-vāsanānale, mora citta sadā jvale,
+ravi-tapta maru-bhūmi-tala"""
+    
+    cursor.execute("SELECT id FROM library_index WHERE canonical_id = 'SLK_13.47'")
+    res = cursor.fetchone()
+    if res:
+        # Tenta update primeiro
+        cursor.execute("UPDATE library_root_text SET transliteration = ? WHERE index_id = ?", (root_text, res[0]))
+        if cursor.rowcount == 0:
+             cursor.execute("INSERT INTO library_root_text (index_id, transliteration) VALUES (?, ?)", (res[0], root_text))
+        print("✅ SLK_13.47 preenchido.")
+
+def fix_slk_13_87(cursor):
+    """Remove título vazado no 13.87."""
+    print("🔧 Limpando SLK_13.87...")
+    cursor.execute("""
+        SELECT t.id, t.text_body 
+        FROM library_translations t
+        JOIN library_index i ON t.index_id = i.id
+        WHERE i.canonical_id = 'SLK_13.87'
     """)
+    res = cursor.fetchone()
+    if res:
+        trans_id, body = res
+        if "Rādhā-Kṛṣṇa tattva" in body:
+            clean_body = body.split("therefore kāma-bīja")[0].strip() + " therefore kāma-bīja indicates Rādhā-Kṛṣṇa tattva."
+            clean_body = clean_body.replace("\nindicates", " indicates").strip()
+            
+            cursor.execute("UPDATE library_translations SET text_body = ? WHERE id = ?", (clean_body, trans_id))
+            print("✅ SLK_13.87 ajustado.")
 
-    # -------------------------------------------------------------------------
-    # 9. Dados Iniciais
-    # -------------------------------------------------------------------------
-    seed_initial_knowledge(conn)
+def run_cleanup():
+    conn = get_conn()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT id FROM library_books WHERE acronym = 'SLK'")
+    book_res = cursor.fetchone()
+    if not book_res:
+        print("Livro SLK não encontrado.")
+        return
+    book_id = book_res[0]
 
+    ensure_slk_8_39_exists(cursor, book_id)
+    fix_slk_0_1(cursor)
+    fix_slk_13_47(cursor)
+    fix_slk_13_87(cursor)
+    
     conn.commit()
     conn.close()
-    logger.info("✅ HariKathaAI v6.5 configurado com sucesso!")
-
-
-def seed_initial_knowledge(conn: sqlite3.Connection) -> None:
-    """Insere dados estáticos iniciais (idiomas, regras e livros)."""
-    cur = conn.cursor()
-    logger.info("🌱 Semeando conhecimento inicial...")
-
-    # Idiomas
-    cur.executemany(
-        "INSERT OR IGNORE INTO languages (code, description) VALUES (?, ?);",
-        [("pt", "Português"), ("en", "English"), ("sa", "Sânscrito"), ("bn", "Bengali")]
-    )
-
-    # Livros (Estrutura da biblioteca)
-    livros = [
-        ("SB", "Śrīmad-Bhāgavatam", "Canto", "Capítulo", "Verso", "sa"),
-        ("BRS", "Bhakti-rasāmṛta-sindhu", "Vibhaga", "Lahari", "Verso", "sa"),
-        ("CC", "Śrī Caitanya-caritāmṛta", "Lila", "Capítulo", "Verso", "bn"),
-        ("UN", "Ujjvala-nīlamaṇi", None, "Prakarana", "Verso", "sa"),
-    ]
-    cur.executemany("""
-        INSERT OR IGNORE INTO library_books
-        (acronym, book_title, label_l1, label_l2, label_l3, language_default)
-        VALUES (?, ?, ?, ?, ?, ?);
-    """, livros)
-    
-    logger.info("✅ Seed concluído.")
+    print("\n✨ Limpeza final concluída!")
 
 if __name__ == "__main__":
-    setup_database()
+    run_cleanup()
